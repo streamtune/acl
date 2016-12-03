@@ -10,6 +10,12 @@ var (
 	ErrSidUnloaded    = errors.New("Requested SID was not loaded")
 )
 
+// Authentication interface is used to provide authentication data.
+type Authentication interface {
+	GetPrincipal() string
+	GetAuthorities() []string
+}
+
 // Sid is a security identity recognised by the ACL system.
 //
 // Thi interface provides indirection between actual security object (e.g. principals, roles, groups etc.) and what is
@@ -24,22 +30,16 @@ type Sid interface {
 // SidRetrievalStrategy is a interface that provides an ability to determine the Sid instances applicable for a given
 // object.
 type SidRetrievalStrategy interface {
-	GetSids(auth interface{}) []Sid
+	GetSids(auth Authentication) []Sid
 }
 
-// ReservedOn is the caracter used to provide an on bit
-// ReservedOff is the carachter used to provide an off bit
-// ThirtyTwoReservedOff is the pattern of all off bits
-const (
-	ReservedOn           = '~'
-	ReservedOff          = '.'
-	ThirtyTwoReservedOff = "................................"
-)
+// Bitmask represents a 32 bit mask used by permissions
+type Bitmask uint32
 
 // Permission represents a permission granted to a Sid for a given domain object.
 type Permission interface {
 	// GetMask will returns the bits that represents the permission mask
-	GetMask() int32
+	GetMask() Bitmask
 
 	// GetPattern returns a 32-character long bit pattern string representing this permission.
 	//
@@ -53,6 +53,9 @@ type Permission interface {
 	// This method is only used for user interface and logging purposes. It is not used in any permission calculations.
 	// Therefore, duplication of characters within the output is permitted.
 	GetPattern() string
+
+	// Check if this permission is equal to the provided one
+	Equals(other Permission) bool
 }
 
 // PermissionGrantingStrategy allow customization of the logic for determining whether a permission or permissions are
