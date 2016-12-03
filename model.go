@@ -183,7 +183,7 @@ type MutableAcl interface {
 	Acl
 
 	// Obtains an identifier that represents this MutableAcl
-	GetId() interface{}
+	GetID() interface{}
 
 	// Changes the present owner to a different one.
 	SetOwner(owner Sid)
@@ -220,7 +220,7 @@ type AccessControlEntry interface {
 	GetAcl() Acl
 
 	// Obtains an indetifier that represents this ACE.
-	GetId() interface{}
+	GetID() interface{}
 
 	// Obtains the permission of this ACE
 	GetPermission() Permission
