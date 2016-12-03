@@ -33,30 +33,8 @@ type SidRetrievalStrategy interface {
 	GetSids(auth Authentication) []Sid
 }
 
-// Bitmask represents a 32 bit mask used by permissions
-type Bitmask uint32
-
 // Permission represents a permission granted to a Sid for a given domain object.
-type Permission interface {
-	// GetMask will returns the bits that represents the permission mask
-	GetMask() Bitmask
-
-	// GetPattern returns a 32-character long bit pattern string representing this permission.
-	//
-	// Implementations are free to format the pattern as they see fit, although under no circumstances may ReservedOff
-	// or ReservedOn by used within the pattern. An exemption is in the case of ReservedOff which is used to denote a
-	// bit that is off (clear). Implementations may also elect to use ReservedOn internally for computation purposes,
-	// although this method may not return any string containing ReservedOn.
-	//
-	// The returnes string must be 32 characters in length.
-	//
-	// This method is only used for user interface and logging purposes. It is not used in any permission calculations.
-	// Therefore, duplication of characters within the output is permitted.
-	GetPattern() string
-
-	// Check if this permission is equal to the provided one
-	Equals(other Permission) bool
-}
+type Permission uint32
 
 // PermissionGrantingStrategy allow customization of the logic for determining whether a permission or permissions are
 // granted to a particular Sid or Sids by an Acl.

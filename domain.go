@@ -5,8 +5,21 @@ import (
 	"fmt"
 )
 
-// AccessControlEntryImpl is the basic implementation of an AccessControlEntry interface
-type AccessControlEntryImpl struct {
+// ReadPermission is used in order to read a value
+// WritePermission is used in order to write a value
+// CreatePermisssion is used in order to create a new value
+// DeletePermission is used in order to delete a value
+// AdministrationPermission is used in order to allow administration tasks
+const (
+	ReadPermission Permission = 1 << iota
+	WritePermission
+	CreatePermisssion
+	DeletePermission
+	AdministrationPermission
+)
+
+// Ace is the basic implementation of an AccessControlEntry interface
+type Ace struct {
 	acl      Acl
 	perm     Permission
 	id       interface{}
@@ -16,8 +29,8 @@ type AccessControlEntryImpl struct {
 	failure  bool
 }
 
-// NewAccessControlEntryImpl will create a new AccessControlEntryImpl instance
-func NewAccessControlEntryImpl(id interface{}, acl Acl, sid Sid, perm Permission, granting, success, failure bool) (*AccessControlEntryImpl, error) {
+// newAce will create a new defaultAce instance
+func newAce(id interface{}, acl Acl, sid Sid, perm Permission, granting, success, failure bool) (*Ace, error) {
 	if acl == nil {
 		return nil, errors.New("Acl object is required")
 	}
@@ -27,56 +40,56 @@ func NewAccessControlEntryImpl(id interface{}, acl Acl, sid Sid, perm Permission
 	if perm == nil {
 		return nil, errors.New("Permission object is required")
 	}
-	return &AccessControlEntryImpl{acl, perm, id, sid, granting, success, failure}, nil
+	return &Ace{acl, perm, id, sid, granting, success, failure}, nil
 }
 
 // GetAcl will retrieve the Acl
-func (ace *AccessControlEntryImpl) GetAcl() Acl {
+func (ace *Ace) GetAcl() Acl {
 	return ace.acl
 }
 
 // GetID will retrieve the id
-func (ace *AccessControlEntryImpl) GetID() interface{} {
+func (ace *Ace) GetID() interface{} {
 	return ace.id
 }
 
 // GetPermission will retrieve the permission
-func (ace *AccessControlEntryImpl) GetPermission() Permission {
+func (ace *Ace) GetPermission() Permission {
 	return ace.perm
 }
 
 // GetSid will retrieve the Sid
-func (ace *AccessControlEntryImpl) GetSid() Sid {
+func (ace *Ace) GetSid() Sid {
 	return ace.sid
 }
 
 // IsAuditFailure check if this ACE should log failures
-func (ace *AccessControlEntryImpl) IsAuditFailure() bool {
+func (ace *Ace) IsAuditFailure() bool {
 	return ace.failure
 }
 
 // IsAuditSuccess check if this ACE should log successes
-func (ace *AccessControlEntryImpl) IsAuditSuccess() bool {
+func (ace *Ace) IsAuditSuccess() bool {
 	return ace.succes
 }
 
 // IsGranting check if this ACE permission are granted
-func (ace *AccessControlEntryImpl) IsGranting() bool {
+func (ace *Ace) IsGranting() bool {
 	return ace.granting
 }
 
 // SetAuditFailure will change the audit failure behavior
-func (ace *AccessControlEntryImpl) SetAuditFailure(failure bool) {
+func (ace *Ace) SetAuditFailure(failure bool) {
 	ace.failure = failure
 }
 
 // SetAuditSuccess will change the audit success behavior
-func (ace *AccessControlEntryImpl) SetAuditSuccess(success bool) {
+func (ace *Ace) SetAuditSuccess(success bool) {
 	ace.succes = success
 }
 
 // SetPermission will change the permission of this ACE
-func (ace *AccessControlEntryImpl) SetPermission(perm Permission) error {
+func (ace *Ace) SetPermission(perm Permission) error {
 	if perm == nil {
 		return errors.New("Permission required")
 	}
@@ -84,9 +97,9 @@ func (ace *AccessControlEntryImpl) SetPermission(perm Permission) error {
 	return nil
 }
 
-func (ace *AccessControlEntryImpl) String() string {
+func (ace *Ace) String() string {
 	return fmt.Sprintf(
-		"AccessControlEntryImpl[id: %s; granting: %t; sid: %s; permission: %s, auditSuccess: %t, auditFailure: %t]",
+		"Ace[id: %s; granting: %t; sid: %s; permission: %s, auditSuccess: %t, auditFailure: %t]",
 		ace.id,
 		ace.granting,
 		ace.sid,
@@ -122,6 +135,52 @@ type AuthorizationStrategy interface {
 // - Holds relevant granted authorities.
 // - Has BasePermission Adminnistration permission (as defined by the ACL).
 type DefaultAuthorizationStrategy struct {
+	generalChange        string
+	auditingChange       string
+	ownershipChange      string
+	sidRetrievalStrategy SidRetrievalStrategy
+}
+
+// NewDefaultAuthorizationStrategy will create a new default AuthorizationStrategy
+func NewDefaultAuthorizationStrategy(general, auditing, ownership string) *DefaultAuthorizationStrategy {
+	return &DefaultAuthorizationStrategy{general, auditing, ownership, NewDefaultSidRetrievalStrategy()}
+}
+
+// SecurityCheck perform the security check for the given change type
+func (s *DefaultAuthorizationStrategy) SecurityCheck(auth Authentication, acl Acl, change ChangeType) error {
+	if auth == nil {
+		return errors.New("Authenticated principal required to operate with ACLs")
+	}
+	currentUser := NewPrincipalSid(auth.GetPrincipal())
+	if currentUser.Equals(acl.GetOwner()) && (change == ChangeGeneral || change == ChangeOwnership) {
+		return nil
+	}
+	// Not authorized by ACL ownership; try via administrtive permissions
+	var requiredAuthority string
+	switch change {
+	case ChangeAuditing:
+		requiredAuthority = s.auditingChange
+	case ChangeGeneral:
+		requiredAuthority = s.generalChange
+	case ChangeOwnership:
+		requiredAuthority = s.ownershipChange
+	default:
+		return errors.New("Unsupported change type")
+	}
+	// Iterate the principal's authorities to determine right
+	for _, v := range auth.GetAuthorities() {
+		if v == requiredAuthority {
+			return nil
+		}
+	}
+	// Try to get permissions via ACEs within the ACL
+	sids := s.sidRetrievalStrategy.GetSids(auth)
+	perms := []Permission{AdministrationPermission}
+	if ok, err := acl.IsGranted(perms, sids, false); err != nil && ok {
+		return nil
+	}
+
+	return errors.New("Principal does not have required ACL permissions to perform required operation.")
 }
 
 // AuditLogger is used in order to audit logging data.
@@ -183,19 +242,19 @@ func (p *PrincipalSid) String() string {
 	return fmt.Sprintf("PrincipalSid[%s]", p.principal)
 }
 
-// SidRetrievalStrategyImpl is a basic implementation of SidRetrievalStrategy that creates a Sid for the principal, as
+// DefaultSidRetrievalStrategy is a basic implementation of SidRetrievalStrategy that creates a Sid for the principal, as
 // well as every granted authority the principal holds.
-type SidRetrievalStrategyImpl struct {
+type DefaultSidRetrievalStrategy struct {
 	// TODO optionally provide a role hierarchy
 }
 
-// NewSidRetrievalStrategyImpl will create a new SidRetrievalStrategyImpl instance
-func NewSidRetrievalStrategyImpl() *SidRetrievalStrategyImpl {
-	return &SidRetrievalStrategyImpl{}
+// NewDefaultSidRetrievalStrategy will create a new SidRetrievalStrategyImpl instance
+func NewDefaultSidRetrievalStrategy() *DefaultSidRetrievalStrategy {
+	return &DefaultSidRetrievalStrategy{}
 }
 
 // GetSids will retrieve the sids for given authentication object
-func (s *SidRetrievalStrategyImpl) GetSids(auth Authentication) []Sid {
+func (s *DefaultSidRetrievalStrategy) GetSids(auth Authentication) []Sid {
 	roles := auth.GetAuthorities()
 	sids := make([]Sid, len(roles)+1)
 	sids = append(sids, NewPrincipalSid(auth.GetPrincipal()))
@@ -203,83 +262,4 @@ func (s *SidRetrievalStrategyImpl) GetSids(auth Authentication) []Sid {
 		sids = append(sids, NewAuthoritySid(role))
 	}
 	return sids
-}
-
-// BasePermission is the basic permission
-type BasePermission struct {
-	mask Bitmask
-}
-
-// NewBasePermission will create a new BasePermission object instance with given code and mask
-func NewBasePermission(mask Bitmask) *BasePermission {
-	return &BasePermission{mask}
-}
-
-// GetMask will retrieve the mask for the receiver permission
-func (p *BasePermission) GetMask() Bitmask {
-	return p.mask
-}
-
-// GetPattern will retrieve the pattern for the receiver permission
-func (p *BasePermission) GetPattern() string {
-	return p.mask.String()
-}
-
-// Equals will check if the receiver base permission is equal to provided other permission
-func (p *BasePermission) Equals(other Permission) bool {
-	if o, ok := other.(*BasePermission); ok {
-		return p.mask == o.mask
-	}
-	return false
-}
-
-func (p *BasePermission) String() string {
-	return fmt.Sprintf("BasePermission[%s=%d]", p.GetPattern(), p.mask)
-}
-
-// CumulativePermission represents a Permission that is constructed at runtime from other permissions.
-type CumulativePermission struct {
-	mask Bitmask
-}
-
-// NewCumulativePermission will create a new CumulativePermission
-func NewCumulativePermission() *CumulativePermission {
-	return &CumulativePermission{0}
-}
-
-// Clear will clear a single permission flag
-func (c *CumulativePermission) Clear(perm Permission) {
-	c.mask.removeFlag(perm.GetMask())
-}
-
-// ClearAll will clear all the permission flags
-func (c *CumulativePermission) ClearAll() {
-	c.mask.removeAll()
-}
-
-// Set will set the permission flag
-func (c *CumulativePermission) Set(perm Permission) {
-	c.mask.addFlag(perm.GetMask())
-}
-
-// GetMask will retrieve the permission mask
-func (c *CumulativePermission) GetMask() Bitmask {
-	return c.mask
-}
-
-// GetPattern will retrieve the permission pattern
-func (c CumulativePermission) GetPattern() string {
-	return c.mask.String()
-}
-
-// Equals will check if the receiver base permission is equal to provided other permission
-func (c *CumulativePermission) Equals(other Permission) bool {
-	if o, ok := other.(*CumulativePermission); ok {
-		return c.mask == o.mask
-	}
-	return false
-}
-
-func (c CumulativePermission) String() string {
-	return fmt.Sprintf("CumulativePermission[%s=%d]", c.mask, uint32(c.mask))
 }
