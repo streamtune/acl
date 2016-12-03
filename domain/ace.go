@@ -26,9 +26,6 @@ func NewAccessControlEntry(id interface{}, acl acl.Instance, sid acl.Sid, perm a
 	if sid == nil {
 		return nil, errors.New("Sid object is required")
 	}
-	if perm == nil {
-		return nil, errors.New("Permission object is required")
-	}
 	return &AccessControlEntry{acl, perm, id, sid, granting, success, failure}, nil
 }
 

@@ -8,14 +8,14 @@ type AuthoritySid string
 // Equals will check if the receiver is equal to provided Sid implementation
 func (s AuthoritySid) Equals(other acl.Sid) bool {
 	if o, ok := other.(AuthoritySid); ok {
-		return s.authority == o.authority
+		return s == o
 	}
 	return false
 }
 
 // GetAuthority retrieve the authority for the receiver authority Sid.
 func (s AuthoritySid) GetAuthority() string {
-	return s
+	return string(s)
 }
 
 // PrincipalSid is a Sid implementation holding a principal
@@ -24,14 +24,14 @@ type PrincipalSid string
 // Equals will check if the receiver is equal to provided Sid implementation
 func (p PrincipalSid) Equals(other acl.Sid) bool {
 	if o, ok := other.(PrincipalSid); ok {
-		return p.principal == o.principal
+		return p == o
 	}
 	return false
 }
 
 // GetPrincipal retrieve the principal for the receiver principal Sid.
 func (p PrincipalSid) GetPrincipal() string {
-	return p
+	return string(p)
 }
 
 // DefaultSidRetrievalStrategy is a basic implementation of SidRetrievalStrategy that creates a Sid for the principal, as
