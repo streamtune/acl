@@ -82,3 +82,8 @@ func (cache *defaultCache) ClearCache() {
 	cache.oidCache = make(map[oid.Oid]MutableAcl)
 	cache.Unlock()
 }
+
+// DefaultCache will create and return a new default cache
+func DefaultCache() Cache {
+	return newDefaultCache()
+}
