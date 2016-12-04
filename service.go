@@ -17,6 +17,7 @@ type Service interface {
 	ReadAclsById(oids []oid.Oid, sids []sid.Sid) (map[oid.Oid]Acl, error)
 }
 
+// MutableService provides support for creating and storing Acl instances.
 type MutableService interface {
 	// Creates an empty Acl object. It will have no entries. The returnes object will then be used to add entries.
 	CreateAcl(oid oid.Oid) (Acl, error)
