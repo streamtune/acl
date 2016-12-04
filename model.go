@@ -7,9 +7,9 @@ import (
 
 // ErrSidUnloaded is returned when an Acl cannot perform an operation because the caller has requested Sid not loaded.
 var (
-	ErrNotFound       = errors.New("No instance found")
-	ErrExists         = errors.New("An instance already exists for provided object identity")
-	ErrChildrenExists = errors.New("Instance cannot be deleted because a children ACL exists")
+	ErrNotFound       = errors.New("No Acl found")
+	ErrExists         = errors.New("An Acl already exists for provided object identity")
+	ErrChildrenExists = errors.New("Acl cannot be deleted because a children ACL exists")
 	ErrSidUnloaded    = errors.New("Requested SID was not loaded")
 )
 
@@ -30,12 +30,9 @@ type Sid interface {
 	Equals(Sid) bool
 }
 
-// SidRetrievalStrategy is a interface that provides an ability to determine the Sid instances applicable for a given
+// SidRetriever is a interface that provides an ability to determine the Sid Acls applicable for a given
 // object.
-type SidRetrievalStrategy interface {
-	// Retrieve all the sids for provided authentication object.
-	GetSids(Authentication) []Sid
-}
+type SidRetriever func(Authentication) []Sid
 
 // Permission represents a permission granted to a Sid for a given domain object.
 type Permission uint32
@@ -54,6 +51,11 @@ const (
 	DeletePermission
 	AdministrationPermission
 )
+
+// Match will check that a permission match another one
+func (p Permission) Match(other Permission) bool {
+	return p&other != 0
+}
 
 // HasFlag check that a Permission hold a specific flag
 func (p Permission) HasFlag(flag uint32) bool {
@@ -88,16 +90,15 @@ func (p Permission) String() string {
 	return res.String()
 }
 
-// PermissionGrantingStrategy allow customization of the logic for determining whether a permission or permissions are
-// granted to a particular Sid or Sids by an Acl.
-type PermissionGrantingStrategy interface {
-	// IsGranted returns true if the supplied strategy decides that the supplied Acl grants access based on the supplied
-	// list of Permissions and Sids.
-	IsGranted(Instance, []Permission, []Sid, bool) (bool, error)
-}
+// AuditLogger is used in order to audit logging data.
+type AuditLogger func(bool, Ace)
 
-// Identity represents the identity of an individual domain object instance.
-type Identity interface {
+// PermissionGranter allow customization of the logic for determining whether a permission or permissions are
+// granted to a particular Sid or Sids by an Acl.
+type PermissionGranter func(Acl, []Permission, []Sid, bool, AuditLogger) (bool, error)
+
+// Oid represents the identity of an individual domain object Acl.
+type Oid interface {
 	// Obtains the actual identifier. This identifier must not be reused to represent other domain objects with the same
 	// type.
 	//
@@ -110,35 +111,29 @@ type Identity interface {
 	GetType() string
 
 	// Equals will check if the provided ObjectIdentity is equals to the receiver
-	Equals(Identity) bool
+	Equals(Oid) bool
 }
 
-// IdentityGenerator is the strategy which creates an ObjectIdentity from an object identifier (such as a primary
+// OidGenerator is the strategy which creates an ObjectIdentity from an object identifier (such as a primary
 // key) and type information.
 //
-// Differs from ObjectIdentityRetrievalStrategy in that it is used in situations when the actual object instance isn't
+// Differs from ObjectIdentityRetrievalStrategy in that it is used in situations when the actual object Acl isn't
 // available.
-type IdentityGenerator interface {
-	// Generate a new ObjectIdentity instance.
-	CreateIdentity(interface{}, string) (Identity, error)
-}
+type OidGenerator func(interface{}, string) (Oid, error)
 
-// IdentityRetrievalStrategy is the interface that provides the ability to determine which ObjectIdentity will be
+// OidRetriever is the interface that provides the ability to determine which ObjectIdentity will be
 // returned for a particular domain object.
-type IdentityRetrievalStrategy interface {
-	// Retrieve the domain object identity.
-	GetIdentity(interface{}) (Identity, error)
-}
+type OidRetriever func(interface{}) (Oid, error)
 
-// Instance represents an access control list for a domain object.
+// Acl represents an access control list for a domain object.
 //
 // An Acl represents all ACL entries for a given domain object. In order to avoid needing references to the domain
 // object itself, this interface handles indirection between a domain object and an ACL object identity via the
 // ObjectIdentity.
 //
-// Implementing classes may elect to return instances that represent Permission information for either some OR all Sid
-// instances. Therefore, an instance may NOT necessarily contain ALL Sids for a given domain object.
-type Instance interface {
+// Implementing classes may elect to return Acls that represent Permission information for either some OR all Sid
+// Acls. Therefore, an Acl may NOT necessarily contain ALL Sids for a given domain object.
+type Acl interface {
 	// Returns all of the entries represented by the present Acl. Entries associated with the Acl parents are not
 	// returned.
 	//
@@ -154,7 +149,7 @@ type Instance interface {
 	GetEntries() []Ace
 
 	// Obtains the domain object this Acl provides entries for. This is immutable once an Acl is created.
-	GetIdentity() Identity
+	GetIdentity() Oid
 
 	// Determines the owner of the Acl. The meaning of ownership varies by implementation and is unspecified.
 	GetOwner() Sid
@@ -164,7 +159,7 @@ type Instance interface {
 	//
 	// This method solely represents the presence of a navigation hierarchy between the parent Acl and this Acl. For
 	// actual inheritance to take place, the IsEntriesInheriting must also be true.
-	GetParent() Instance
+	GetParent() Acl
 
 	// Indicates whether the ACL entries from the GetParentAcl should flow down into the current Acl.
 	//
@@ -198,7 +193,7 @@ type Instance interface {
 
 	// For efficiency reasons an Acl may be loaded and not contain entries for every Sid in the system.
 	// If an Acl has been loaded and does not represent every Sid, all methods of the Acl can only be used within the
-	// limited scope of the Sid instances it actually represents.
+	// limited scope of the Sid Acls it actually represents.
 	//
 	// It is normal to load an Acl for only particular Sids if read-only authorization decisions are being made.
 	// However, if user interface reporting or modification of Acls are desired, an Acl should be loaded with all
@@ -206,23 +201,23 @@ type Instance interface {
 	IsSidLoaded([]Sid) bool
 }
 
-// MutableInstance represents a mutable ACL.
+// MutableAcl represents a mutable ACL.
 //
 // A mutable ACL must ensure that appropriate security checks are performed before allowing access to its methods.
-type MutableInstance interface {
-	Instance
+type MutableAcl interface {
+	Acl
 
 	// Obtains an identifier that represents this MutableAcl
 	GetID() interface{}
 
 	// Changes the present owner to a different one.
-	SetOwner(Sid)
+	SetOwner(Sid) error
 
 	// Change the value returned by IsEntriesInheriting
-	SetEntriesInheriting(bool)
+	SetEntriesInheriting(bool) error
 
 	// Changes the parent of this ACL.
-	SetParent(Instance)
+	SetParent(Acl) error
 
 	// Inserts a new AccessControlEntry at provided index.
 	InsertAce(int, Permission, Sid, bool) error
@@ -234,9 +229,9 @@ type MutableInstance interface {
 	DeleteAce(int) error
 }
 
-// AuditableInstance is a MutableAcl that allows auditing capabilities.
-type AuditableInstance interface {
-	MutableInstance
+// AuditableAcl is a MutableAcl that allows auditing capabilities.
+type AuditableAcl interface {
+	MutableAcl
 
 	// Update auditing flags for AccessControlEntry at index
 	UpdateAuditing(index int, success, failure bool) error
@@ -244,13 +239,13 @@ type AuditableInstance interface {
 
 // Ace represents an individual permission assignment within an Acl.
 //
-// Instances MUST be immutable, as they are returned by Acl and should not allow client modification.
+// Acls MUST be immutable, as they are returned by Acl and should not allow client modification.
 type Ace interface {
 	// Obtains an indetifier that represents this ACE.
 	GetID() interface{}
 
-	// Retrieve the owning instance
-	GetInstance() Instance
+	// Retrieve the owning Acl
+	GetAcl() Acl
 
 	// Obtains the permission of this ACE
 	GetPermission() Permission
@@ -276,35 +271,35 @@ type AuditableAce interface {
 type Cache interface {
 	EvictFromCache(id interface{})
 
-	GetFromCache(id interface{}) MutableInstance
+	GetFromCache(id interface{}) MutableAcl
 
-	PutInCache(acl MutableInstance)
+	PutInCache(acl MutableAcl)
 
 	ClearCache()
 }
 
-// Service is the interface that provides retrieval of Acl instances.
+// Service is the interface that provides retrieval of Acl Acls.
 type Service interface {
 	// Locates all object identities that use the specified parent. This is useful for administration tools.
-	FindChildren(oid Identity) []Identity
+	FindChildren(oid Oid) []Oid
 
 	// Reads a single ACL for the given object identity and (optionally) the list of sid.
-	ReadAclById(oid Identity, sids []Sid) (Instance, error)
+	ReadAclById(oid Oid, sids []Sid) (Acl, error)
 
 	// Obtains all the Acl that apply for the passed in object identities and (optionally) the list of sid.
-	ReadAclsById(oids []Identity, sids []Sid) (map[Identity]Instance, error)
+	ReadAclsById(oids []Oid, sids []Sid) (map[Oid]Acl, error)
 }
 
-// MutableService is the interface that provides updates of Acl instances.
+// MutableService is the interface that provides updates of Acl Acls.
 type MutableService interface {
 	Service
 
 	// Creates an empty Acl object. It will have no entries. The returnes object will then be used to add entries.
-	CreateAcl(oid Identity) (MutableInstance, error)
+	CreateAcl(oid Oid) (MutableAcl, error)
 
 	// Updates an existing Acl.
-	UpdateAcl(acl MutableInstance) (MutableInstance, error)
+	UpdateAcl(acl MutableAcl) (MutableAcl, error)
 
 	// Removes the specified entry from the backend storage.
-	DeleteAcl(oid Identity, children bool) error
+	DeleteAcl(oid Oid, children bool) error
 }
