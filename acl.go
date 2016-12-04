@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lib/pq/oid"
+	"sync"
+
 	"github.com/streamtune/acl/change"
+	"github.com/streamtune/acl/oid"
 	"github.com/streamtune/acl/permission"
 	"github.com/streamtune/acl/sid"
 )
@@ -123,6 +125,7 @@ type AuditableAcl interface {
 }
 
 type acl struct {
+	sync.RWMutex
 	id         interface{}
 	oid        oid.Oid
 	owner      sid.Sid
@@ -172,7 +175,9 @@ func (acl *acl) InsertAce(ctx context.Context, index int, permission permission.
 		return errors.New("Invalid index for ACE creation")
 	}
 	ace := newAccessControlEntry(nil, acl, sid, permission, granting, false, false)
+	acl.Lock()
 	acl.aces = append(acl.aces[:index], append([]Ace{ace}, acl.aces[index:]...)...)
+	acl.Unlock()
 	return nil
 }
 
@@ -184,8 +189,10 @@ func (acl *acl) UpdateAce(ctx context.Context, index int, permission permission.
 	if err := acl.verifyIndexExists(index); err != nil {
 		return err
 	}
+	acl.Lock()
 	ace, _ := acl.aces[index].(*accessControlEntry)
 	ace.setPermission(permission)
+	acl.Unlock()
 	return nil
 }
 
@@ -197,14 +204,18 @@ func (acl *acl) DeleteAce(ctx context.Context, index int) error {
 	if err := acl.verifyIndexExists(index); err != nil {
 		return err
 	}
+	acl.Lock()
 	acl.aces = append(acl.aces[:index], acl.aces[index+1:]...)
+	acl.Unlock()
 	return nil
 }
 
 // GetEntries will retrieve all the entries
 func (acl *acl) GetEntries() []Ace {
+	acl.RLock()
 	result := make([]Ace, len(acl.aces))
 	copy(result, acl.aces)
+	acl.RUnlock()
 	return result
 }
 
@@ -302,9 +313,11 @@ func (acl *acl) UpdateAuditing(ctx context.Context, index int, succes, failure b
 	if err := acl.verifyIndexExists(index); err != nil {
 		return err
 	}
+	acl.Lock()
 	ace, _ := acl.aces[index].(*accessControlEntry)
 	ace.setAuditSuccess(succes)
 	ace.setAuditFailure(failure)
+	acl.Unlock()
 	return nil
 }
 
