@@ -8,7 +8,7 @@ import (
 
 // Sid is the interface exposed by sids
 type Sid interface {
-	Equals(Sid) bool
+	Equals(interface{}) bool
 }
 
 // Principal is a Sid holding a principal.
@@ -22,7 +22,7 @@ func NewPrincipal(principal string) *Principal {
 }
 
 // Equals will check if the provided principal is equal to this one
-func (p *Principal) Equals(other Sid) bool {
+func (p *Principal) Equals(other interface{}) bool {
 	if o, ok := other.(*Principal); ok {
 		return p.principal == o.principal
 	}
@@ -49,7 +49,7 @@ func NewAuthority(authority string) *Authority {
 }
 
 // Equals will check if the receiver is an Authority and has the same authority name
-func (a *Authority) Equals(other Sid) bool {
+func (a *Authority) Equals(other interface{}) bool {
 	if o, ok := other.(*Authority); ok {
 		return a.authority == o.authority
 	}
