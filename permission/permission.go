@@ -20,6 +20,11 @@ const (
 	Administration
 )
 
+// New will return a new permission that provides no permission at all
+func New() Permission {
+	return None
+}
+
 // Match will check that a permission match another one
 func (p Permission) Match(other Permission) bool {
 	return p&other != 0
