@@ -12,12 +12,12 @@ type Permission uint32
 // DeletePermission is used in order to delete a value
 // AdministrationPermission is used in order to allow administration tasks
 const (
-	NoPermission   Permission = 0
-	ReadPermission Permission = 1 << iota
-	WritePermission
-	CreatePermisssion
-	DeletePermission
-	AdministrationPermission
+	None Permission = 0
+	Read Permission = 1 << iota
+	Write
+	Create
+	Delete
+	Administration
 )
 
 // Match will check that a permission match another one

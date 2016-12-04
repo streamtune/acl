@@ -22,6 +22,7 @@ type Acl interface {
 	GetEntries() []Ace
 	GetParent() Acl
 	IsEntriesInheriting() bool
+	IsGranted([]Permission, []sid.Sid, bool) (bool, error)
 }
 
 // Ace is the interface that Access Control Entries must complains to in order to be processed by permission checker
@@ -84,7 +85,7 @@ func (c *Checker) Check(acl Acl, permissions []Permission, sids []sid.Sid, admin
 
 	// No matches have been found so far
 	if parent := acl.GetParent(); parent != nil && acl.IsEntriesInheriting() {
-		return c.Check(parent, permissions, sids, admin)
+		return parent.IsGranted(permissions, sids, admin)
 	}
 	// We either have no parent or we're the uppermost parent
 	return false, errors.New("No entry found")
