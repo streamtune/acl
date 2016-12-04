@@ -6,89 +6,115 @@ import (
 	"fmt"
 )
 
-// Sid is the interface exposed by sids
+// DefaultRetriever is the default Sid retriever
+var DefaultRetriever Retriever
+
+func init() {
+	DefaultRetriever = &defaultRetriever{}
+}
+
+// Sid is a security identity recognised by the ACL system.
+//
+// This interface provides indirection between actual security objects (eg principals, roles, groups etc) and what is
+// stored inside an Acl. This is because an Acl will not store an entire security object, but only an abstraction of it.
+// This interface therefore provides a simple way to compare these abstracted security identities with other security
+// identities and actual security objects.
 type Sid interface {
-	Equals(interface{}) bool
+	// The name of sid
+	Name() string
+	// Equals will check if the receiver Sid object is equal to other one
+	Equals(Sid) bool
 }
 
-// Principal is a Sid holding a principal.
-type Principal struct {
-	principal string
+// Retriever is a strategy interface that provides an ability to determine the Sid instances applicable for a Context.
+type Retriever interface {
+	// Retrieve the available Sid for given context
+	Retrieve(context.Context) ([]Sid, error)
 }
 
-// NewPrincipal will create a new Sid for given principal
-func NewPrincipal(principal string) *Principal {
-	return &Principal{principal}
+type principal struct {
+	name string
 }
 
-// Equals will check if the provided principal is equal to this one
-func (p *Principal) Equals(other interface{}) bool {
-	if o, ok := other.(*Principal); ok {
-		return p.principal == o.principal
+func (p principal) Name() string {
+	return p.name
+}
+
+func (p principal) Equals(other Sid) bool {
+	if o, ok := other.(principal); ok {
+		return p.name == o.name
 	}
 	return false
 }
 
-// GetPrincipal will retrieve the principal
-func (p *Principal) GetPrincipal() string {
-	return p.principal
+func (p principal) String() string {
+	return fmt.Sprintf("PrincipalSid[%s]", p.name)
 }
 
-func (p *Principal) String() string {
-	return fmt.Sprintf("Principal[%s]", p.principal)
+// ForPrincipal will create a new Sid for the provided name
+func ForPrincipal(name string) (Sid, error) {
+	if name == "" {
+		return nil, errors.New("Cannot create Sid from an empty principal")
+	}
+	return &principal{name}, nil
 }
 
-// Authority is a Sid holding a granted authority.
-type Authority struct {
-	authority string
+type authority struct {
+	name string
 }
 
-// NewAuthority will create a new Sid for the provided authority
-func NewAuthority(authority string) *Authority {
-	return &Authority{authority}
+func (a authority) Name() string {
+	return a.name
 }
 
-// Equals will check if the receiver is an Authority and has the same authority name
-func (a *Authority) Equals(other interface{}) bool {
-	if o, ok := other.(*Authority); ok {
-		return a.authority == o.authority
+func (a authority) Equals(other Sid) bool {
+	if o, ok := other.(authority); ok {
+		return a.name == o.name
 	}
 	return false
 }
 
-// GetAuthority will retrieve the authority name
-func (a *Authority) GetAuthority() string {
-	return a.authority
+func (a authority) String() string {
+	return fmt.Sprintf("AuthoritySid[%s]", a.name)
 }
 
-func (a *Authority) String() string {
-	return fmt.Sprintf("Authority[%s]", a.authority)
+// ForAuthority will create a new Sid for given authority
+func ForAuthority(name string) (Sid, error) {
+	if name == "" {
+		return nil, errors.New("Cannot create Sid from an empty authority")
+	}
+	return &authority{name}, nil
 }
 
-// Authentication is the object from which can be created a list of Sid
-type Authentication interface {
+type authentication interface {
 	GetPrincipal() string
 	GetAuthorities() []string
 }
 
-// New will create a new slice of Sid from provided authentication object
-func New(auth Authentication) ([]Sid, error) {
-	if auth == nil {
-		return nil, errors.New("No sid available for nil authentication object")
-	}
-	authorities := auth.GetAuthorities()
-	sids := make([]Sid, len(authorities)+1)
-	sids = append(sids, NewPrincipal(auth.GetPrincipal()))
-	for _, authority := range authorities {
-		sids = append(sids, NewAuthority(authority))
-	}
-	return sids, nil
-}
+type defaultRetriever struct{}
 
-// NewFromContext wil extract a list of Sid from context
-func NewFromContext(ctx context.Context) ([]Sid, error) {
-	if auth, ok := ctx.Value("Authentication").(Authentication); ok {
-		return New(auth)
+func (r *defaultRetriever) Retrieve(ctx context.Context) ([]Sid, error) {
+	if auth, ok := ctx.Value("Authentication").(authentication); ok {
+		authorities := auth.GetAuthorities()
+		sids := make([]Sid, len(authorities)+1)
+		sid, err := ForPrincipal(auth.GetPrincipal())
+		if err != nil {
+			return nil, err
+		}
+		sids = append(sids, sid)
+		for _, authority := range authorities {
+			sid, err = ForAuthority(authority)
+			if err != nil {
+				return nil, err
+			}
+			sids = append(sids, sid)
+		}
+		return sids, nil
 	}
 	return nil, fmt.Errorf("No authentication object found on context %x", ctx)
+}
+
+// Retrieve the sid from provided context using the DefaultRetriever
+func Retrieve(ctx context.Context) ([]Sid, error) {
+	return DefaultRetriever.Retrieve(ctx)
 }
