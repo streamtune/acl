@@ -33,11 +33,11 @@ type Oid interface {
 	// Because ACLs are largely immutable, it is strongly recommended to use a synthetic identifier (such as a database
 	// sequence number for the primary key). Do not use an identifier with business meaning, as that business meaning
 	// may change in the future such change will cascade to the ACL subsystem data.
-	GetIdentifier() interface{}
+	Identifier() interface{}
 
 	// Obtains the "type" metadata for the domain object. This will often be a go type name (an interface or a class).
 	// Traditionally it is the name of the domain object implementation class.
-	GetType() string
+	Type() string
 }
 
 // Generator is a strategy which creates an Oid from an object identifier (such as a primary key) and type information.
@@ -65,11 +65,11 @@ func (id *objectIdentity) Equals(other Oid) bool {
 	return false
 }
 
-func (id *objectIdentity) GetIdentifier() interface{} {
+func (id *objectIdentity) Identifier() interface{} {
 	return id.id
 }
 
-func (id *objectIdentity) GetType() string {
+func (id *objectIdentity) Type() string {
 	return id.kind
 }
 
